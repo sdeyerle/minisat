@@ -1,2 +1,6 @@
 config.mk
 build
+.*
+*.swp
+*.swo
+tags

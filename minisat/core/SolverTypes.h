@@ -131,6 +131,30 @@ inline lbool toLbool(int   v) { return lbool((uint8_t)v);  }
 #endif
 
 
+//================================================================================================
+class SharedClause {
+
+public:
+	void addLit(Lit *in) {
+		clause.push(*in);
+	}
+
+	void setLitVec(vec<Lit> *in) {
+		clause.clear();
+		for(int i=0; i<in->size(); i++) {
+			clause.push( (*in)[i] );
+		}
+	}
+
+	vec<Lit> *getClause() {
+		return &clause;
+	}
+
+public:
+	vec<Lit> clause;
+	
+};
+
 //=================================================================================================
 // Clause -- a simple class for representing a clause:
 
