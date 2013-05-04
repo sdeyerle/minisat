@@ -1,8 +1,8 @@
 ###################################################################################################
 
-.PHONY:	r d p sh cr cd cp csh lr ld lp lsh config all install install-headers install-lib\
+.PHONY:	r d p sh cr cd cp csh lr ld lp lsh pr pd pp psh config all install install-headers install-lib\
         install-bin clean distclean
-all:	r lr lsh
+all:	pd
 
 ## Load Previous Configuration ####################################################################
 
@@ -17,9 +17,9 @@ BUILD_DIR      ?= build
 MINISAT_RELSYM ?= -g
 
 # Sets of compile flags for different build types
-MINISAT_REL    ?= -O3 -D NDEBUG
-MINISAT_DEB    ?= -O0 -D DEBUG 
-MINISAT_PRF    ?= -O3 -D NDEBUG
+MINISAT_REL    ?= -O3 -D NDEBUG -fopenmp
+MINISAT_DEB    ?= -O0 -D DEBUG -fopenmp
+MINISAT_PRF    ?= -O3 -D NDEBUG -fopenmp 
 MINISAT_FPIC   ?= -fpic
 
 # GNU Standard Install Prefix
@@ -49,10 +49,11 @@ datarootdir ?= $(prefix)/share
 mandir      ?= $(datarootdir)/man
 
 # Target file names
-MINISAT      = minisat#       Name of MiniSat main executable.
-MINISAT_CORE = minisat_core#  Name of simplified MiniSat executable (only core solver support).
-MINISAT_SLIB = lib$(MINISAT).a#  Name of MiniSat static library.
-MINISAT_DLIB = lib$(MINISAT).so# Name of MiniSat shared library.
+MINISAT      	= minisat#       Name of MiniSat main executable.
+MINISAT_CORE 	= minisat_core#  Name of simplified MiniSat executable (only core solver support).
+MINISAT_PARALLEL= multisat
+MINISAT_SLIB 	= lib$(MINISAT).a#  Name of MiniSat static library.
+MINISAT_DLIB 	= lib$(MINISAT).so# Name of MiniSat shared library.
 
 # Shared Library Version
 SOMAJOR=2
@@ -60,7 +61,7 @@ SOMINOR=1
 SORELEASE?=.0#   Declare empty to leave out from library file name.
 
 MINISAT_CXXFLAGS = -I. -D __STDC_LIMIT_MACROS -D __STDC_FORMAT_MACROS -Wall -Wno-parentheses -Wextra
-MINISAT_LDFLAGS  = -Wall -lz
+MINISAT_LDFLAGS  = -Wall -lz -fopenmp
 
 ECHO=@echo
 ifeq ($(VERB),)
@@ -69,8 +70,8 @@ else
 VERB=
 endif
 
-SRCS = $(wildcard minisat/core/*.cc) $(wildcard minisat/simp/*.cc) $(wildcard minisat/utils/*.cc)
-HDRS = $(wildcard minisat/mtl/*.h) $(wildcard minisat/core/*.h) $(wildcard minisat/simp/*.h) $(wildcard minisat/utils/*.h)
+SRCS = $(wildcard minisat/core/*.cc) $(wildcard minisat/simp/*.cc) $(wildcard minisat/utils/*.cc) $(wildcard minisat/multisat/*.cc)
+HDRS = $(wildcard minisat/mtl/*.h) $(wildcard minisat/core/*.h) $(wildcard minisat/simp/*.h) $(wildcard minisat/utils/*.h) $(wildcard minisat/utils/*.h)
 OBJS = $(filter-out %Main.o, $(SRCS:.cc=.o))
 
 r:	$(BUILD_DIR)/release/bin/$(MINISAT)
@@ -82,6 +83,11 @@ cr:	$(BUILD_DIR)/release/bin/$(MINISAT_CORE)
 cd:	$(BUILD_DIR)/debug/bin/$(MINISAT_CORE)
 cp:	$(BUILD_DIR)/profile/bin/$(MINISAT_CORE)
 csh:	$(BUILD_DIR)/dynamic/bin/$(MINISAT_CORE)
+
+pr:	$(BUILD_DIR)/release/bin/$(MINISAT_PARALLEL)
+pd:	$(BUILD_DIR)/debug/bin/$(MINISAT_PARALLEL)
+pp:	$(BUILD_DIR)/profile/bin/$(MINISAT_PARALLEL)
+psh:	$(BUILD_DIR)/dynamic/bin/$(MINISAT_PARALLEL)
 
 lr:	$(BUILD_DIR)/release/lib/$(MINISAT_SLIB)
 ld:	$(BUILD_DIR)/debug/lib/$(MINISAT_SLIB)
@@ -99,6 +105,8 @@ $(BUILD_DIR)/profile/bin/$(MINISAT):		MINISAT_LDFLAGS += -pg
 $(BUILD_DIR)/release/bin/$(MINISAT):		MINISAT_LDFLAGS += --static $(MINISAT_RELSYM)
 $(BUILD_DIR)/profile/bin/$(MINISAT_CORE):	MINISAT_LDFLAGS += -pg
 $(BUILD_DIR)/release/bin/$(MINISAT_CORE):	MINISAT_LDFLAGS += --static $(MINISAT_RELSYM)
+$(BUILD_DIR)/profile/bin/$(MINISAT_PARALLEL):	MINISAT_LDFLAGS += -pg 
+$(BUILD_DIR)/release/bin/$(MINISAT_PARALLEL):	MINISAT_LDFLAGS += --static $(MINISAT_RELSYM) 
 
 ## Executable dependencies
 $(BUILD_DIR)/release/bin/$(MINISAT):	 	$(BUILD_DIR)/release/minisat/simp/Main.o $(BUILD_DIR)/release/lib/$(MINISAT_SLIB)
@@ -113,6 +121,13 @@ $(BUILD_DIR)/debug/bin/$(MINISAT_CORE):	 	$(BUILD_DIR)/debug/minisat/core/Main.o
 $(BUILD_DIR)/profile/bin/$(MINISAT_CORE):	$(BUILD_DIR)/profile/minisat/core/Main.o $(BUILD_DIR)/profile/lib/$(MINISAT_SLIB)
 # need the main-file be compiled with fpic?
 $(BUILD_DIR)/dynamic/bin/$(MINISAT_CORE): 	$(BUILD_DIR)/dynamic/minisat/core/Main.o $(BUILD_DIR)/dynamic/lib/$(MINISAT_DLIB)
+
+## Executable dependencies (parallel-version)
+$(BUILD_DIR)/release/bin/$(MINISAT_PARALLEL):	$(BUILD_DIR)/release/minisat/multisat/Main.o $(BUILD_DIR)/release/lib/$(MINISAT_SLIB)
+$(BUILD_DIR)/debug/bin/$(MINISAT_PARALLEL):	 	$(BUILD_DIR)/debug/minisat/multisat/Main.o $(BUILD_DIR)/debug/lib/$(MINISAT_SLIB)
+$(BUILD_DIR)/profile/bin/$(MINISAT_PARALLEL):	$(BUILD_DIR)/profile/minisat/multisat/Main.o $(BUILD_DIR)/profile/lib/$(MINISAT_SLIB)
+# need the main-file be compiled with fpic?
+$(BUILD_DIR)/dynamic/bin/$(MINISAT_PARALLEL): 	$(BUILD_DIR)/dynamic/minisat/multisat/Main.o $(BUILD_DIR)/dynamic/lib/$(MINISAT_DLIB)
 
 ## Library dependencies
 $(BUILD_DIR)/release/lib/$(MINISAT_SLIB):	$(foreach o,$(OBJS),$(BUILD_DIR)/release/$(o))
@@ -146,6 +161,7 @@ $(BUILD_DIR)/dynamic/%.o:	%.cc
 ## Linking rule
 $(BUILD_DIR)/release/bin/$(MINISAT) $(BUILD_DIR)/debug/bin/$(MINISAT) $(BUILD_DIR)/profile/bin/$(MINISAT) $(BUILD_DIR)/dynamic/bin/$(MINISAT)\
 $(BUILD_DIR)/release/bin/$(MINISAT_CORE) $(BUILD_DIR)/debug/bin/$(MINISAT_CORE) $(BUILD_DIR)/profile/bin/$(MINISAT_CORE) $(BUILD_DIR)/dynamic/bin/$(MINISAT_CORE):
+$(BUILD_DIR)/release/bin/$(MINISAT_PARALLEL) $(BUILD_DIR)/debug/bin/$(MINISAT_PARALLEL) $(BUILD_DIR)/profile/bin/$(MINISAT_PARALLEL) $(BUILD_DIR)/dynamic/bin/$(MINISAT_PARALLEL):
 	$(ECHO) Linking Binary: $@
 	$(VERB) mkdir -p $(dir $@)
 	$(VERB) $(CXX) $^ $(MINISAT_LDFLAGS) $(LDFLAGS) -o $@
@@ -199,6 +215,7 @@ clean:
 	rm -f $(foreach t, release debug profile dynamic, $(foreach o, $(SRCS:.cc=.o), $(BUILD_DIR)/$t/$o)) \
           $(foreach t, release debug profile dynamic, $(foreach d, $(SRCS:.cc=.d), $(BUILD_DIR)/$t/$d)) \
 	  $(foreach t, release debug profile dynamic, $(BUILD_DIR)/$t/bin/$(MINISAT_CORE) $(BUILD_DIR)/$t/bin/$(MINISAT)) \
+	  $(foreach t, release debug profile dynamic, $(BUILD_DIR)/$t/bin/$(MINISAT_PARALLEL) $(BUILD_DIR)/$t/bin/$(MINISAT)) \
 	  $(foreach t, release debug profile, $(BUILD_DIR)/$t/lib/$(MINISAT_SLIB)) \
 	  $(BUILD_DIR)/dynamic/lib/$(MINISAT_DLIB).$(SOMAJOR).$(SOMINOR)$(SORELEASE)\
 	  $(BUILD_DIR)/dynamic/lib/$(MINISAT_DLIB).$(SOMAJOR)\

@@ -21,6 +21,8 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include <errno.h>
 #include <zlib.h>
 
+#include <omp.h>
+#include <pthread.h>
 #include "minisat/utils/System.h"
 #include "minisat/utils/ParseUtils.h"
 #include "minisat/utils/Options.h"
@@ -59,103 +61,109 @@ int main(int argc, char** argv)
         
         // Extra options:
         //
-        IntOption    verb   ("MAIN", "verb",   "Verbosity level (0=silent, 1=some, 2=more).", 1, IntRange(0, 2));
-        IntOption    verb   ("MAIN", "nthreads",   "Number of concurrent threads", 4, IntRange(1, 32));
-        BoolOption   pre    ("MAIN", "pre",    "Completely turn on/off any preprocessing.", true);
-        BoolOption   solve  ("MAIN", "solve",  "Completely turn on/off solving after preprocessing.", true);
-        StringOption dimacs ("MAIN", "dimacs", "If given, stop after preprocessing and write the result to this file.");
-        IntOption    cpu_lim("MAIN", "cpu-lim","Limit on CPU time allowed in seconds.\n", 0, IntRange(0, INT32_MAX));
-        IntOption    mem_lim("MAIN", "mem-lim","Limit on memory usage in megabytes.\n", 0, IntRange(0, INT32_MAX));
-        BoolOption   strictp("MAIN", "strict", "Validate DIMACS header during parsing.", false);
+        IntOption    verb    ("MAIN", "verb",   "Verbosity level (0=silent, 1=some, 2=more).", 1, IntRange(0, 2));
+        IntOption    nthreads("MAIN", "nthreads",   "Number of concurrent threads", 4, IntRange(1, 32));
+        BoolOption   pre     ("MAIN", "pre",    "Completely turn on/off any preprocessing.", true);
+        BoolOption   solve   ("MAIN", "solve",  "Completely turn on/off solving after preprocessing.", true);
+        StringOption dimacs  ("MAIN", "dimacs", "If given, stop after preprocessing and write the result to this file.");
+        IntOption    cpu_lim ("MAIN", "cpu-lim","Limit on CPU time allowed in seconds.\n", 0, IntRange(0, INT32_MAX));
+        IntOption    mem_lim ("MAIN", "mem-lim","Limit on memory usage in megabytes.\n", 0, IntRange(0, INT32_MAX));
+        BoolOption   strictp ("MAIN", "strict", "Validate DIMACS header during parsing.", false);
 
         parseOptions(argc, argv, true);
         
-        SimpSolver  S;
+        SimpSolver  *S = new SimpSolver[(int)nthreads];
         double      initial_time = cpuTime();
 
-        if (!pre) S.eliminate(true);
-
-        S.verbosity = verb;
-        
-        solver = &S;
+        solver = &S[0];
         // Use signal handlers that forcibly quit until the solver will be able to respond to
         // interrupts:
         sigTerm(SIGINT_exit);
 
-        // Try to set resource limits:
-        if (cpu_lim != 0) limitTime(cpu_lim);
-        if (mem_lim != 0) limitMemory(mem_lim);
+	omp_set_num_threads((int)nthreads);
+#pragma omp parallel
+	{
+		int t = omp_get_thread_num();
 
-        if (argc == 1)
-            printf("Reading from standard input... Use '--help' for help.\n");
+		if (!pre) S[t].eliminate(true);
 
-        gzFile in = (argc == 1) ? gzdopen(0, "rb") : gzopen(argv[1], "rb");
-        if (in == NULL)
-            printf("ERROR! Could not open file: %s\n", argc == 1 ? "<stdin>" : argv[1]), exit(1);
-        
-        if (S.verbosity > 0){
-            printf("============================[ Problem Statistics ]=============================\n");
-            printf("|                                                                             |\n"); }
-        
-        parse_DIMACS(in, S, (bool)strictp);
-        gzclose(in);
-        FILE* res = (argc >= 3) ? fopen(argv[2], "wb") : NULL;
+		S[t].verbosity = verb;
 
-        if (S.verbosity > 0){
-            printf("|  Number of variables:  %12d                                         |\n", S.nVars());
-            printf("|  Number of clauses:    %12d                                         |\n", S.nClauses()); }
-        
-        double parsed_time = cpuTime();
-        if (S.verbosity > 0)
-            printf("|  Parse time:           %12.2f s                                       |\n", parsed_time - initial_time);
+		// Try to set resource limits:
+		if (cpu_lim != 0) limitTime(cpu_lim);
+		if (mem_lim != 0) limitMemory(mem_lim);
 
-        // Change to signal-handlers that will only notify the solver and allow it to terminate
-        // voluntarily:
-        sigTerm(SIGINT_interrupt);
+		if (argc == 1)
+		    printf("Reading from standard input... Use '--help' for help.\n");
 
-        S.eliminate(true);
-        double simplified_time = cpuTime();
-        if (S.verbosity > 0){
-            printf("|  Simplification time:  %12.2f s                                       |\n", simplified_time - parsed_time);
-            printf("|                                                                             |\n"); }
+		gzFile in = (argc == 1) ? gzdopen(0, "rb") : gzopen(argv[1], "rb");
+		if (in == NULL)
+		    printf("ERROR! Could not open file: %s\n", argc == 1 ? "<stdin>" : argv[1]), exit(1);
+		
+		if (S[t].verbosity > 0){
+		    printf("============================[ Problem Statistics ]=============================\n");
+		    printf("|                                                                             |\n"); }
+		
+		parse_DIMACS(in, S[t], (bool)strictp);
+		gzclose(in);
+		FILE* res = (argc >= 3) ? fopen(argv[2], "wb") : NULL;
 
-        if (!S.okay()){
-            if (res != NULL) fprintf(res, "UNSAT\n"), fclose(res);
-            if (S.verbosity > 0){
-                printf("===============================================================================\n");
-                printf("Solved by simplification\n");
-                S.printStats();
-                printf("\n"); }
-            printf("UNSATISFIABLE\n");
-            exit(20);
-        }
+		if (S[t].verbosity > 0){
+		    printf("|  Number of variables:  %12d                                         |\n", S[t].nVars());
+		    printf("|  Number of clauses:    %12d                                         |\n", S[t].nClauses()); }
+		
+		double parsed_time = cpuTime();
+		if (S[t].verbosity > 0)
+		    printf("|  Parse time:           %12.2f s                                       |\n", parsed_time - initial_time);
 
-        lbool ret = l_Undef;
+		// Change to signal-handlers that will only notify the solver and allow it to terminate
+		// voluntarily:
+		sigTerm(SIGINT_interrupt);
+
+		S[t].eliminate(true);
+		double simplified_time = cpuTime();
+		if (S[t].verbosity > 0){
+		    printf("|  Simplification time:  %12.2f s                                       |\n", simplified_time - parsed_time);
+		    printf("|                                                                             |\n"); }
+
+
+		if (!S[t].okay()){
+		    if (res != NULL) fprintf(res, "UNSAT\n"), fclose(res);
+		    if (S[t].verbosity > 0){
+			printf("===============================================================================\n");
+			printf("Solved by simplification\n");
+			S[t].printStats();
+			printf("\n"); }
+		    printf("UNSATISFIABLE\n");
+		    exit(20);
+		}
+
+		lbool ret = l_Undef;
 
         if (solve){
-            vec<Lit> dummy;
-            ret = S.solveLimited(dummy);
-        }else if (S.verbosity > 0)
+            vec<lit> dummy;
+            ret = s.solvelimited(dummy);
+        }else if (s.verbosity > 0)
             printf("===============================================================================\n");
 
-        if (dimacs && ret == l_Undef)
-            S.toDimacs((const char*)dimacs);
+        if (dimacs && ret == l_undef)
+            s.todimacs((const char*)dimacs);
 
-        if (S.verbosity > 0){
-            S.printStats();
+        if (s.verbosity > 0){
+            s.printstats();
             printf("\n"); }
-        printf(ret == l_True ? "SATISFIABLE\n" : ret == l_False ? "UNSATISFIABLE\n" : "INDETERMINATE\n");
-        if (res != NULL){
-            if (ret == l_True){
-                fprintf(res, "SAT\n");
-                for (int i = 0; i < S.nVars(); i++)
-                    if (S.model[i] != l_Undef)
-                        fprintf(res, "%s%s%d", (i==0)?"":" ", (S.model[i]==l_True)?"":"-", i+1);
+        printf(ret == l_true ? "satisfiable\n" : ret == l_false ? "unsatisfiable\n" : "indeterminate\n");
+        if (res != null){
+            if (ret == l_true){
+                fprintf(res, "sat\n");
+                for (int i = 0; i < s.nvars(); i++)
+                    if (s.model[i] != l_undef)
+                        fprintf(res, "%s%s%d", (i==0)?"":" ", (s.model[i]==l_true)?"":"-", i+1);
                 fprintf(res, " 0\n");
-            }else if (ret == l_False)
-                fprintf(res, "UNSAT\n");
+            }else if (ret == l_false)
+                fprintf(res, "unsat\n");
             else
-                fprintf(res, "INDET\n");
+                fprintf(res, "indet\n");
             fclose(res);
         }
 
