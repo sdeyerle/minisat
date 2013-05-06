@@ -70,16 +70,28 @@ int main(int argc, char** argv)
         BoolOption   strictp ("MAIN", "strict", "Validate DIMACS header during parsing.", false);
 
         parseOptions(argc, argv, true);
-	
+
+
 	SolverGroup group(nthreads);  //Initialize a parallel solver with nthreads
 	gzFile in = (argc == 1) ? gzdopen(0, "rb") : gzopen(argv[1], "rb");
         if (in == NULL)
             printf("ERROR! Could not open file: %s\n", argc == 1 ? "<stdin>" : argv[1]), exit(1);
-        
+       
         group.parse_DIMACS(in);
         gzclose(in);
 
-	
+	for(int i=0; i<nthreads; i++) {
+		group.solvers[i]->verbosity = verb;
+	}
+
+	group.eliminate_parallel(true);
+
+	int winning_thread;
+	lbool ret = group.solve_parallel(&winning_thread);
+	printf("Winning thread is: %d\n", winning_thread);
+	printf(ret == l_True ? "SATISFIABLE\n" : ret == l_False ? "UNSATISFIABLE\n" : "INDETERMINATE\n");
+	group.solvers[winning_thread]->printStats();
+
         
  //       SimpSolver  S;
  //       double      initial_time = cpuTime();

@@ -160,7 +160,7 @@ $(BUILD_DIR)/dynamic/%.o:	%.cc
 
 ## Linking rule
 $(BUILD_DIR)/release/bin/$(MINISAT) $(BUILD_DIR)/debug/bin/$(MINISAT) $(BUILD_DIR)/profile/bin/$(MINISAT) $(BUILD_DIR)/dynamic/bin/$(MINISAT)\
-$(BUILD_DIR)/release/bin/$(MINISAT_CORE) $(BUILD_DIR)/debug/bin/$(MINISAT_CORE) $(BUILD_DIR)/profile/bin/$(MINISAT_CORE) $(BUILD_DIR)/dynamic/bin/$(MINISAT_CORE):
+$(BUILD_DIR)/release/bin/$(MINISAT_CORE) $(BUILD_DIR)/debug/bin/$(MINISAT_CORE) $(BUILD_DIR)/profile/bin/$(MINISAT_CORE) $(BUILD_DIR)/dynamic/bin/$(MINISAT_CORE) \
 $(BUILD_DIR)/release/bin/$(MINISAT_PARALLEL) $(BUILD_DIR)/debug/bin/$(MINISAT_PARALLEL) $(BUILD_DIR)/profile/bin/$(MINISAT_PARALLEL) $(BUILD_DIR)/dynamic/bin/$(MINISAT_PARALLEL):
 	$(ECHO) Linking Binary: $@
 	$(VERB) mkdir -p $(dir $@)

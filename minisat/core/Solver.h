@@ -111,6 +111,9 @@ public:
     void    interrupt();          // Trigger a (potentially asynchronous) interruption of the solver.
     void    clearInterrupt();     // Clear interrupt indicator flag.
 
+    //Parallel additions
+    Lit     pickGuidingPathLit();
+
     // Memory managment:
     //
     virtual void garbageCollect();

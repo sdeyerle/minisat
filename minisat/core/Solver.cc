@@ -275,6 +275,22 @@ Lit Solver::pickBranchLit()
         return mkLit(next, polarity[next]);
 }
 
+Lit Solver::pickGuidingPathLit()
+{
+    Var next = var_Undef;
+
+    // Activity based decision:
+    while (next == var_Undef || value(next) != l_Undef || !decision[next])
+        if (order_heap.empty()){
+            next = var_Undef;
+            break;
+        }else
+            next = order_heap.removeMin();
+
+	return mkLit(next, true);
+}
+
+
 
 /*_________________________________________________________________________________________________
 |
