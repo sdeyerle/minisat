@@ -267,27 +267,35 @@ Lit Solver::pickBranchLit()
     // Choose polarity based on different polarity modes (global or per-variable):
     if (next == var_Undef)
         return lit_Undef;
-    else if (user_pol[next] != l_Undef)
-        return mkLit(next, user_pol[next] == l_True);
+    else if (user_pol[next] != l_Undef) {
+	return mkLit(next, user_pol[next] == l_True);
+    }
     else if (rnd_pol)
         return mkLit(next, drand(random_seed) < 0.5);
-    else
+    else {
         return mkLit(next, polarity[next]);
+    }
 }
 
 Lit Solver::pickGuidingPathLit()
 {
     Var next = var_Undef;
-
+    rebuildOrderHeap();
     // Activity based decision:
-    while (next == var_Undef || value(next) != l_Undef || !decision[next])
+    while (next == var_Undef || value(next) != l_Undef || !decision[next]) {
         if (order_heap.empty()){
             next = var_Undef;
+	    printf("Error in picking a guiding path\n");
             break;
         }else
             next = order_heap.removeMin();
+    }
 
 	return mkLit(next, true);
+}
+
+vec<Lit> *Solver::getTrail() {
+	return &trail;
 }
 
 

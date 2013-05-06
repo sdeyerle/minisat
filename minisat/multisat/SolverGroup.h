@@ -29,6 +29,7 @@ public:
 	lbool solve_parallel(int *winning_thread);
 	bool eliminate_parallel(bool in);
 	void exportClause(vec<Lit> clause);
+	vec< vec<Lit>* > *createGuidingPaths(int num);
 private:
 	void readClause(StreamBuffer &in, vec<Lit>& lits);
 

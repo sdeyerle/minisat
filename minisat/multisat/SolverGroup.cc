@@ -11,6 +11,7 @@ namespace Minisat {
 	void *solver_thread(void *in) {
 		struct sg_thread_status *status = (struct sg_thread_status*) in;
 		SimpSolver *solver = status->solver;
+		status->trail = status->solver->getTrail();
 		
 		printf("About to begin solving thread #%d\n", status->thread_id);
 
@@ -108,33 +109,30 @@ namespace Minisat {
 			int initvar = var;
 			for(int t = 0; t < nthreads; t++){
 				var = initvar;	
-				while (var >= solvers[t]->nVars()) solvers[t]->newVar();
+				while (var >= solvers[t]->nVars()) solvers[t]->newVar(l_False);
 			}
 			lits.push( (parsed_lit > 0) ? mkLit(var) : ~mkLit(var) );
 		}
 	}
 
-	lbool SolverGroup::solve_parallel(int *winning_thread) {
-		//Lock the primary mutex for the pthread_cond_t
-		pthread_mutex_lock(&lock);
-		bool group_done = false;
-
-		int num_guiding_paths = pow(2, ceil(log2(nthreads)));
+	//The input number of paths which is rounded up to 2^n
+	vec< vec<Lit>* > *SolverGroup::createGuidingPaths(int num) {
+		int num_guiding_paths = pow(2, ceil(log2(num)));
 		printf("Num Guiding Paths: %d\n", num_guiding_paths);
 
-		//Using STL vectors because the MTL vectors succckkkkkkkk....
 		int num_vars = log2(num_guiding_paths); //The number of variables in the guiding paths
 
 		typedef vec<Lit> simp_clause;
 		vec<Lit> guiding_path;
-		vec<simp_clause*> guiding_path_queue;
+		vec<simp_clause*> *guiding_path_queue = new vec< vec<Lit>* >;
 
 		printf("Picking guiding path vars \n");
 		for(int i=0; i<num_vars; i++) {
 			Lit pickedLit =  solvers[0]->pickGuidingPathLit();
 			guiding_path.push( pickedLit );
-			printf("%s%d\n", sign(pickedLit) ? "-" : "", var(pickedLit) );
+			printf("%d ", var(pickedLit) );
 		}
+		printf("\n");
 		for(int i=0; i<num_guiding_paths; i++) {
 			printf("Guiding Path %d:", i);
 			vec<Lit> *new_gp = new vec<Lit>;
@@ -152,13 +150,35 @@ namespace Minisat {
 				printf("%s%d ", sign( (*new_gp)[j] ) ? "-" : "", var( (*new_gp)[j] ) );
 			}
 			printf("\n");
-			guiding_path_queue.push(new_gp);
+			guiding_path_queue->push(new_gp);
+		}
+		return guiding_path_queue;
+
+	}
+
+	lbool SolverGroup::solve_parallel(int *winning_thread) {
+		bool group_done = false;
+
+		enum stat {
+			INDETERM,
+			SAT,
+			UNSAT
+		};
+
+		vec< vec<Lit>* > *guiding_path_queue = createGuidingPaths(nthreads);
+		int num_paths = guiding_path_queue->size();
+		int *guiding_path_status = new int[num_paths];
+	
+		for(int i=0; i<num_paths; i++) {
+			guiding_path_status[i] = INDETERM;
 		}
 
+		//Lock the primary mutex for the pthread_cond_t
+		pthread_mutex_lock(&lock);
 
 		for(int i=0; i<nthreads; i++) {
-			thread_status[i]->assumps = guiding_path_queue.last();
-			guiding_path_queue.pop();
+			thread_status[i]->assumps = guiding_path_queue->last();
+			guiding_path_queue->pop();
 			thread_status[i]->signal_complete = &signal_complete;
 			thread_status[i]->lock = &lock;
 			thread_status[i]->thread_id = i;
@@ -173,19 +193,43 @@ namespace Minisat {
 			pthread_cond_wait(&signal_complete, &lock);
 			for(int i=0; i<nthreads; i++) {
 				if(thread_status[i]->done == true && thread_status[i]->result == l_True) {
-					printf("I've detected thread #%d is done\n", i);	
-					group_done = true;	
-					
+					printf("Thread:%d was SAT\n", i);	
+					group_done = true; //Tell all threads to exit
 					
 					for(int j=0; j<nthreads; j++) {
-						pthread_join(threads[i], NULL);
+						pthread_kill(threads[i], 9);
 					}
 					
 					pthread_mutex_unlock(&lock);
+					guiding_path_status[i] = SAT;
 					*winning_thread = i;
 					return thread_status[i]->result; //Return which thread finished first
 				}
+				else if(thread_status[i]->done == true && thread_status[i]->result == l_False) {
+					printf("Thread:%d was UNSAT\n", i);	
+					guiding_path_status[i] = UNSAT;
+				}
 			}
+			printf("Thread 0 trail: ");
+			for(int i=0; i< thread_status[0]->trail->size(); i++) {
+				printf("%s%d ", sign( (*thread_status[0]->trail)[i] ) ? "-" : "", var( (*thread_status[0]->trail)[i] ));
+			}
+			printf("\n");
+			printf("Thread 0 trail decisions: ");
+			for(int i=0; i<  solvers[i]->trail_lim.size(); i++) {
+				printf("%d ",  solvers[i]->trail_lim[i] ); 
+			}
+			printf("\n");
+
+			int num_unsat = 0;
+			for(int i=0; i<nthreads; i++) {
+				if(guiding_path_status[i] == UNSAT)
+					num_unsat++;
+			}
+			if(num_unsat == num_paths) {
+				return l_False;
+			}
+			num_unsat = 0;
 		}
 	}
 	
