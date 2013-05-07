@@ -733,6 +733,25 @@ lbool Solver::search(int nof_conflicts)
 
     for (;;){
         CRef confl = propagate();
+	
+//	if(trail.size() > 3000) {
+//		printf("TOO BIG - BYEBYE size is: %d\n", trail.size());
+//		exit(-1);
+//	}
+
+//	printf("Current Trail: ");
+//	for(int i=0; i<trail.size(); i++) {
+//		printf("%d:%s%d ", i, sign( trail[i] ) ? "-" : "", var( trail[i] ));
+//
+//	}
+//	printf("\n");
+//	printf("Current Trail Limit: ");
+//	for(int i=0; i<trail_lim.size(); i++) {
+//		printf("%d ", trail_lim[i]);
+//
+//	}
+//	printf("\n");
+
         if (confl != CRef_Undef){
             // CONFLICT
             conflicts++; conflictC++;

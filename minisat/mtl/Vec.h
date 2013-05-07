@@ -21,6 +21,31 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #ifndef Minisat_Vec_h
 #define Minisat_Vec_h
 
+//#include <assert.h>
+//#include <vector>
+
+//namespace Minisat {
+//	template<class T, class _Size = int>
+//	class vec : public std::vector<T> {
+//		public:
+//		typedef _Size Size;
+//		void	push  (const T& elem)      { this->push_back(elem); }
+//		void	push  ()      { this->push_back(T()); }
+//		void     push_ (const T& elem)     { this->push_back(elem); }
+//		void	pop  (void)      { this->pop_back(); }
+//		void 	copyTo(vec<T>& copy) const { copy = *this; }
+//		Size 	size() const		   { return (Size) std::vector<T>::size(); }
+//		void     growTo   (Size size)      { std::vector<T>::reserve(size); }
+//		void     growTo   (Size size, const T& pad) { std::vector<T>::resize(size, pad); }
+//		void     shrink   (Size nelems)    { std::vector<T>::resize(nelems); } 
+//		void     capacity (Size min_cap)   { std::vector<T>::reserve(size); }
+//		const T& last  (void) const        { return std::vector<T>::back(); }
+//		T&       last  (void)              { return std::vector<T>::back(); }
+//
+//
+//	};
+//}
+
 #include <assert.h>
 #include <limits>
 #include <new>
