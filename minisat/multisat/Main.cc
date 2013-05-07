@@ -30,24 +30,8 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 
 using namespace Minisat;
 
-//=================================================================================================
-
-
-static Solver* solver;
-// Terminate by notifying the solver and back out gracefully. This is mainly to have a test-case
-// for this feature of the Solver as it may take longer than an immediate call to '_exit()'.
-static void SIGINT_interrupt(int) { solver->interrupt(); }
-
-// Note that '_exit()' rather than 'exit()' has to be used. The reason is that 'exit()' calls
-// destructors and may cause deadlocks if a malloc/free function happens to be running (these
-// functions are guarded by locks for multithreaded use).
-static void SIGINT_exit(int) {
-    printf("\n"); printf("*** INTERRUPTED ***\n");
-    if (solver->verbosity > 0){
-        solver->printStats();
-        printf("\n"); printf("*** INTERRUPTED ***\n"); }
-    _exit(1); }
-
+//Note: All the graceful exit stuff has been removed because the ManySAT guys never bothered
+//to actually make it work and I'm sick of the warnings
 
 //=================================================================================================
 // Main:
@@ -85,6 +69,11 @@ int main(int argc, char** argv)
 	}
 
 	group.eliminate_parallel(true);
+
+	if( !group.solvers[0]->okay() ) {
+		printf("-- UNSAT --  Solved by simplification\n");
+		exit(0);
+	}
 
 	int winning_thread;
 	lbool ret = group.solve_parallel(&winning_thread);

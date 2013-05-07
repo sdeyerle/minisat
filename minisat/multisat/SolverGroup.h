@@ -9,14 +9,26 @@ namespace Minisat {
 
 struct sg_thread_status {
 	vec<Lit>	*assumps;
-	vec<Lit>	*trail;
 	bool		done;
 	lbool		result;
 	pthread_cond_t	*signal_complete;
 	pthread_mutex_t *lock;
 	int 		thread_id;
 	SimpSolver 	*solver;
-	bool		*group_done;
+	bool		exit_now;
+	int 		mode;
+	int		guiding_path_num;
+};
+
+enum stat {
+	INDETERM,
+	SAT,
+	UNSAT
+};
+
+enum solver_mode {
+	MODE_GP,
+	MODE_RAND
 };
 
 class SolverGroup {
@@ -30,6 +42,8 @@ public:
 	bool eliminate_parallel(bool in);
 	void exportClause(vec<Lit> clause);
 	vec< vec<Lit>* > *createGuidingPaths(int num);
+	bool processCompleteSolvers( lbool &status, int *winning_thread );
+	int  findOldThread();
 private:
 	void readClause(StreamBuffer &in, vec<Lit>& lits);
 
@@ -44,6 +58,12 @@ private:
 	pthread_mutex_t lock;  //Main mutex for threads
 	pthread_rwlock_t exportedClauseLock;
 	int nthreads;
+	int current_guiding_path;
+	int *thread_guiding_path; //Array containing relation of which thread is
+				  //working on which guiding path
+	int *guiding_path_status;
+	int num_guiding_paths;
+	vec< vec<Lit>* > *guiding_path_queue;
 
 
 }; //class SolverGroup

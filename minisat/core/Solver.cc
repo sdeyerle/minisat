@@ -260,9 +260,12 @@ Lit Solver::pickBranchLit()
     while (next == var_Undef || value(next) != l_Undef || !decision[next])
         if (order_heap.empty()){
             next = var_Undef;
+	    printf("ORDERED HEAP IS EMPTY!\n");
             break;
         }else
             next = order_heap.removeMin();
+
+    //printf("pickBranchLit(): Chose %d\n", next);
 
     // Choose polarity based on different polarity modes (global or per-variable):
     if (next == var_Undef)
@@ -280,7 +283,6 @@ Lit Solver::pickBranchLit()
 Lit Solver::pickGuidingPathLit()
 {
     Var next = var_Undef;
-    rebuildOrderHeap();
     // Activity based decision:
     while (next == var_Undef || value(next) != l_Undef || !decision[next]) {
         if (order_heap.empty()){
@@ -294,10 +296,12 @@ Lit Solver::pickGuidingPathLit()
 	return mkLit(next, true);
 }
 
-vec<Lit> *Solver::getTrail() {
-	return &trail;
+void Solver::setRandomPolarity( bool in ) {
+	rnd_pol = in;
 }
-
+void Solver::setRandomFreq( double in ) {
+	random_var_freq = in;
+}
 
 
 /*_________________________________________________________________________________________________
@@ -886,7 +890,7 @@ lbool Solver::solve_()
     if (!ok) return l_False;
 
     solves++;
-
+	
     max_learnts = nClauses() * learntsize_factor;
     if (max_learnts < min_learnts_lim)
         max_learnts = min_learnts_lim;

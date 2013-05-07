@@ -1,34 +1,45 @@
 
 #include "SolverGroup.h"
 #include "SimpSolver.h"
+#include "minisat/utils/System.h"
 #include <signal.h>
 #include <omp.h>
 #include <math.h>
 #include <vector>
 
+
 namespace Minisat {
-	//Placeholder for real solver thread
-	void *solver_thread(void *in) {
+
+	//Debugger helper function
+	void printPath( char *prefix, vec<Lit> *in) {
+		printf("%s: ", prefix);
+		for(int j=0; j<in->size(); j++) {
+			printf("%s%d ", sign( (*in)[j] ) ? "-" : "", var( (*in)[j] ) );
+		}
+		printf("\n");
+	}
+
+	void *solver_thread(void *in) { //Mode is MODE_RAND or MODE_GP
 		struct sg_thread_status *status = (struct sg_thread_status*) in;
 		SimpSolver *solver = status->solver;
-		status->trail = status->solver->getTrail();
-		
+	
+		printf("Starting a solver -- ");
+		printPath((char *)"Assumptions", status->assumps);
+
+		if(status->mode == MODE_RAND) {
+			solver->setRandomPolarity(true);	
+			solver->setRandomFreq( 0.1 ); //Set random freq to 10% after done
+		} //Presently will be irreversible 
+
+		double start_time = cpuTime();
+
 		printf("About to begin solving thread #%d\n", status->thread_id);
-
-		if(*status->group_done) {
-			printf("Thread #%d aborting. 1 \n", status->thread_id);
-			pthread_exit(NULL);
-		}
-
-
+		
 		lbool ret = solver->solveLimited( *status->assumps );
+		//vec<Lit> dummy;
+		//lbool ret = solver->solveLimited( dummy );
 		status->done = true;
 		status->result = ret;
-
-		if(*status->group_done) {
-			printf("Thread #%d aborting. 2 \n", status->thread_id);
-			pthread_exit(NULL);
-		}
 
 		//Signal the main thread that we are done
 		pthread_mutex_lock(status->lock);
@@ -37,7 +48,7 @@ namespace Minisat {
 
 		pthread_mutex_unlock(status->lock);
 		
-		printf("Finished solving thread #%d\n", status->thread_id);
+		printf("Finished solving thread #%d.  Time: %f s\n", status->thread_id, cpuTime() - start_time);
 
 		pthread_exit(NULL);
 	}
@@ -49,6 +60,9 @@ namespace Minisat {
 		solvers = new SimpSolver* [nthreads];
 		thread_status = new struct sg_thread_status* [nthreads];
 		threads = new pthread_t [nthreads];
+		thread_guiding_path = new int[nthreads];
+		guiding_path_status = new int[num_guiding_paths];
+		guiding_path_queue = NULL;
 
 		for(int i=0; i<nthreads; i++) {
 			solvers[i] = new SimpSolver();
@@ -72,6 +86,7 @@ namespace Minisat {
 		int vars    = 0;
 		int clauses = 0;
 		int cnt     = 0;
+		double start_time = cpuTime();
 		for (;;){
 			skipWhitespace(in);
 			if (*in == EOF) break;
@@ -96,6 +111,7 @@ namespace Minisat {
 		if (cnt  != clauses)
 			fprintf(stderr, "WARNING! DIMACS header mismatch: wrong number of clauses.\n");
 
+		printf("Parsing time: %f s\n", cpuTime() - start_time);
 
 	}
 
@@ -118,6 +134,15 @@ namespace Minisat {
 	//The input number of paths which is rounded up to 2^n
 	vec< vec<Lit>* > *SolverGroup::createGuidingPaths(int num) {
 		int num_guiding_paths = pow(2, ceil(log2(num)));
+
+		if(nthreads==1) {
+			num_guiding_paths = 0;
+			vec< vec<Lit> *> *guiding_path_queue = new vec< vec<Lit>* >;
+			vec<Lit> *dummy = new vec<Lit>;
+			guiding_path_queue->push(dummy);
+			return guiding_path_queue;
+		}
+		
 		printf("Num Guiding Paths: %d\n", num_guiding_paths);
 
 		int num_vars = log2(num_guiding_paths); //The number of variables in the guiding paths
@@ -138,7 +163,7 @@ namespace Minisat {
 			vec<Lit> *new_gp = new vec<Lit>;
 			for(int j=0; j<num_vars; j++) {
 				Lit temp;
-				if( (i>>j) % 2 ) {
+				if( (i>>j) % 2 ) { //Create every combination of inversions
 					temp = guiding_path[j];
 				}
 				else {
@@ -157,80 +182,106 @@ namespace Minisat {
 	}
 
 	lbool SolverGroup::solve_parallel(int *winning_thread) {
-		bool group_done = false;
-
-		enum stat {
-			INDETERM,
-			SAT,
-			UNSAT
-		};
-
-		vec< vec<Lit>* > *guiding_path_queue = createGuidingPaths(nthreads);
-		int num_paths = guiding_path_queue->size();
-		int *guiding_path_status = new int[num_paths];
-	
-		for(int i=0; i<num_paths; i++) {
+		guiding_path_queue = createGuidingPaths(nthreads);
+		num_guiding_paths = guiding_path_queue->size();
+				
+		//Initialize thread/guiding path relation to indeterminate at start
+		for(int i=0; i<nthreads; i++) {
+			thread_guiding_path[i] = -1;;
+		}
+		for(int i=0; i<num_guiding_paths; i++) {
 			guiding_path_status[i] = INDETERM;
 		}
 
 		//Lock the primary mutex for the pthread_cond_t
 		pthread_mutex_lock(&lock);
-
+		
+		current_guiding_path = 0;
 		for(int i=0; i<nthreads; i++) {
-			thread_status[i]->assumps = guiding_path_queue->last();
-			guiding_path_queue->pop();
+			thread_status[i]->guiding_path_num = current_guiding_path;
+			thread_guiding_path[i] = current_guiding_path;
+			thread_status[i]->assumps = (*guiding_path_queue)[current_guiding_path++];
 			thread_status[i]->signal_complete = &signal_complete;
 			thread_status[i]->lock = &lock;
 			thread_status[i]->thread_id = i;
 			thread_status[i]->done = false;
+			thread_status[i]->exit_now = false;
+			thread_status[i]->mode = MODE_GP;
 			thread_status[i]->solver = solvers[i];
-			thread_status[i]->group_done = &group_done;
 			int ret = pthread_create(&threads[i], &attr, solver_thread, thread_status[i]); 
 			printf("Created thread %d with return value %d\n", i, ret);
 		}
 
 		while(1) {
 			pthread_cond_wait(&signal_complete, &lock);
-			for(int i=0; i<nthreads; i++) {
-				if(thread_status[i]->done == true && thread_status[i]->result == l_True) {
-					printf("Thread:%d was SAT\n", i);	
-					group_done = true; //Tell all threads to exit
-					
-					for(int j=0; j<nthreads; j++) {
-						pthread_kill(threads[i], 9);
-					}
-					
-					pthread_mutex_unlock(&lock);
-					guiding_path_status[i] = SAT;
-					*winning_thread = i;
-					return thread_status[i]->result; //Return which thread finished first
-				}
-				else if(thread_status[i]->done == true && thread_status[i]->result == l_False) {
-					printf("Thread:%d was UNSAT\n", i);	
-					guiding_path_status[i] = UNSAT;
-				}
-			}
-			printf("Thread 0 trail: ");
-			for(int i=0; i< thread_status[0]->trail->size(); i++) {
-				printf("%s%d ", sign( (*thread_status[0]->trail)[i] ) ? "-" : "", var( (*thread_status[0]->trail)[i] ));
-			}
-			printf("\n");
-			printf("Thread 0 trail decisions: ");
-			for(int i=0; i<  solvers[i]->trail_lim.size(); i++) {
-				printf("%d ",  solvers[i]->trail_lim[i] ); 
-			}
-			printf("\n");
-
-			int num_unsat = 0;
-			for(int i=0; i<nthreads; i++) {
-				if(guiding_path_status[i] == UNSAT)
-					num_unsat++;
-			}
-			if(num_unsat == num_paths) {
-				return l_False;
-			}
-			num_unsat = 0;
+			lbool status;
+			bool done = processCompleteSolvers(status, winning_thread);
+			if(done)
+				return status;
 		}
+	}
+
+	int SolverGroup::findOldThread() {
+		int oldest_guiding_path = thread_guiding_path[0]; 
+		int oldest_thread = 0;
+		for(int i=1; i<nthreads; i++) {
+			if(thread_guiding_path[i] < oldest_guiding_path) {
+				oldest_guiding_path = thread_guiding_path[i];
+				oldest_thread = i;
+			}
+		}
+		return oldest_guiding_path;
+	}
+
+	bool SolverGroup::processCompleteSolvers(lbool &status, int *winning_thread) {
+		for(int i=0; i<nthreads; i++) {
+			if(thread_status[i]->done == true && thread_status[i]->result == l_True) {
+				printf("Thread:%d was SAT\n", i);	
+
+				for(int j=0; j<nthreads; j++) {
+					thread_status[i]->exit_now = true;	
+				}
+				for(int j=0; j<nthreads; j++) {
+					pthread_join(threads[i], 0);
+				}
+
+				pthread_mutex_unlock(&lock);
+				guiding_path_status[i] = SAT;
+				*winning_thread = i;
+				status = thread_status[i]->result; //Return which thread finished first
+				return true;
+			}
+			else if(thread_status[i]->done == true && thread_status[i]->result == l_False) {
+				guiding_path_status[ thread_status[i]->guiding_path_num ] = UNSAT;
+				printf("Guiding path %d is complete\n", thread_status[i]->guiding_path_num);
+
+				if(current_guiding_path != num_guiding_paths) { //Still working on guiding path case
+					printf("Launching guiding_path %d on thread %d\n", current_guiding_path, i);
+					thread_guiding_path[i] = current_guiding_path;
+					thread_status[i]->guiding_path_num = current_guiding_path;
+					thread_status[i]->assumps = (*guiding_path_queue)[current_guiding_path++];
+					thread_status[i]->done = false;
+					pthread_create(&threads[i], &attr, solver_thread, thread_status[i]);
+				}
+				else { //Random solver case
+					int oldest_gp = findOldThread();
+					printf("Should now spawn a thread to work on %d\n", oldest_gp);
+				}
+			}
+		}
+
+		int num_unsat = 0;
+		for(int i=0; i<nthreads; i++) {
+			if(guiding_path_status[i] == UNSAT)
+				num_unsat++;
+		}
+		if(num_unsat == num_guiding_paths) {
+			*winning_thread = -1;
+			status = l_False;
+			return true;
+		}
+		num_unsat = 0;
+		return false;
 	}
 	
 	bool SolverGroup::eliminate_parallel(bool in) {
@@ -250,6 +301,7 @@ namespace Minisat {
 		}
 		free(solvers);
 		free(thread_status);
+		free(thread_guiding_path);
 	}
 }
 
