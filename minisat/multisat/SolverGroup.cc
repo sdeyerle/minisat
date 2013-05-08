@@ -214,6 +214,7 @@ namespace Minisat {
 
 		while(1) {
 			pthread_cond_wait(&signal_complete, &lock);
+			printf("Signal caught.....\n");
 			lbool status;
 			bool done = processCompleteSolvers(status, winning_thread);
 			if(done)
@@ -222,18 +223,15 @@ namespace Minisat {
 	}
 
 	int SolverGroup::findOldThread() {
-		int oldest_guiding_path = thread_guiding_path[0]; 
-		int oldest_thread = 0;
-		for(int i=1; i<nthreads; i++) {
-			if(thread_guiding_path[i] < oldest_guiding_path) {
-				oldest_guiding_path = thread_guiding_path[i];
-				oldest_thread = i;
-			}
+		for(int i=0; i<num_guiding_paths; i++) {
+			if(guiding_path_status[i] == INDETERM)
+				return i;
 		}
-		return oldest_guiding_path;
+		return -1;
 	}
 
 	bool SolverGroup::processCompleteSolvers(lbool &status, int *winning_thread) {
+		printf("processorCompleteSolvers() called\n");
 		for(int i=0; i<nthreads; i++) {
 			if(thread_status[i]->done == true && thread_status[i]->result == l_True) {
 				printf("Thread:%d was SAT\n", i);	
@@ -251,8 +249,15 @@ namespace Minisat {
 				status = thread_status[i]->result; //Return which thread finished first
 				return true;
 			}
-			else if(thread_status[i]->done == true && thread_status[i]->result == l_False) {
+			else if(thread_status[i]->done == true) {
 				guiding_path_status[ thread_status[i]->guiding_path_num ] = UNSAT;
+
+				for(int j=0; j<nthreads; j++) {
+					if( thread_status[j]->guiding_path_num ==  thread_status[i]->guiding_path_num ) {
+						thread_status[j]->exit_now = true;
+					}
+				}
+
 				printf("Guiding path %d is complete\n", thread_status[i]->guiding_path_num);
 
 				if(current_guiding_path != num_guiding_paths) { //Still working on guiding path case
@@ -265,7 +270,18 @@ namespace Minisat {
 				}
 				else { //Random solver case
 					int oldest_gp = findOldThread();
-					printf("Should now spawn a thread to work on %d\n", oldest_gp);
+
+					if(oldest_gp < 0) //If findOldThread returns 0, every path has already been solved
+						break;
+
+					printf("Launching random solver for guiding_path %d on thread %d\n", oldest_gp, i);
+					thread_guiding_path[i] = oldest_gp;
+					thread_status[i]->guiding_path_num = oldest_gp;
+					thread_status[i]->assumps = (*guiding_path_queue)[oldest_gp];
+					thread_status[i]->done = false;
+					thread_status[i]->exit_now = false;
+					thread_status[i]->mode = MODE_RAND;
+					pthread_create(&threads[i], &attr, solver_thread, thread_status[i]);
 				}
 			}
 		}
