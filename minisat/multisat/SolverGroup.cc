@@ -95,6 +95,14 @@ namespace Minisat {
 					vars    = parseInt(in);
 					clauses = parseInt(in);
 					printf("Clauses: %d Vars: %d\n", clauses, vars);
+					
+					struct VarCount dummy;
+					dummy.num_pos = 0;
+					dummy.num_neg = 0;
+					for(int i=0; i<vars; i++) {
+						dummy.var = i;
+						var_stats.push_back(dummy);
+					}
 				}else{
 					printf("PARSE ERROR! Unexpected char: %c\n", *in), exit(3);
 				}
@@ -111,6 +119,7 @@ namespace Minisat {
 		if (cnt  != clauses)
 			fprintf(stderr, "WARNING! DIMACS header mismatch: wrong number of clauses.\n");
 
+		printVarStats();
 		printf("Parsing time: %f s\n", cpuTime() - start_time);
 
 	}
@@ -125,9 +134,14 @@ namespace Minisat {
 			int initvar = var;
 			for(int t = 0; t < nthreads; t++){
 				var = initvar;	
-				while (var >= solvers[t]->nVars()) solvers[t]->newVar(l_False);
+				while (var >= solvers[t]->nVars()) solvers[t]->newVar(l_False); //Default polarity set here
 			}
 			lits.push( (parsed_lit > 0) ? mkLit(var) : ~mkLit(var) );
+			if(parsed_lit > 0) {
+				var_stats[var].num_pos++;
+			} else {
+				var_stats[var].num_neg++;
+			}
 		}
 	}
 
@@ -319,6 +333,27 @@ namespace Minisat {
 		free(thread_status);
 		free(thread_guiding_path);
 	}
+
+	bool var_stat_compare (const struct VarCount &i, const struct VarCount &j) {
+		int num_neg = i.num_neg;
+		int num_pos = i.num_pos;
+		double controversy_i =  ((double)num_neg + (double)num_pos) / ( abs(num_neg - num_pos) + 1);
+		num_neg = j.num_neg;
+		num_pos = j.num_pos;
+		double controversy_j = ((double)num_neg + (double)num_pos) / ( abs(num_neg - num_pos) + 1);
+		return controversy_i > controversy_j;
+	}
+
+	void SolverGroup::printVarStats() {
+		std::sort(var_stats.begin(), var_stats.end(), var_stat_compare );
+		for(std::vector<VarCount>::iterator i = var_stats.begin(); i != var_stats.end(); i++) {
+			int num_neg = i->num_neg;
+			int num_pos = i->num_pos;
+			double controversy =  ((double)num_neg + (double)num_pos) / ( abs(num_neg - num_pos) + 1);
+			printf("%5d -- pos: %4d - neg: %4d - controversy: %8.2f\n", i->var, i->num_pos, i->num_neg, controversy);
+		}
+	};
 }
+
 
 

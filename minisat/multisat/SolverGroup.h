@@ -4,6 +4,9 @@
 #include <vector>
 #include "SimpSolver.h"
 #include <pthread.h>
+#include <vector>
+#include <algorithm>
+#include <math.h>
 
 namespace Minisat {
 
@@ -31,6 +34,13 @@ enum solver_mode {
 	MODE_RAND
 };
 
+struct VarCount {
+	int var;
+	int num_pos;
+	int num_neg;
+};
+
+
 class SolverGroup {
 public:
 	SolverGroup(int nthreads);
@@ -44,6 +54,7 @@ public:
 	vec< vec<Lit>* > *createGuidingPaths(int num);
 	bool processCompleteSolvers( lbool &status, int *winning_thread );
 	int  findOldThread();
+
 private:
 	void readClause(StreamBuffer &in, vec<Lit>& lits);
 
@@ -64,6 +75,11 @@ private:
 	int *guiding_path_status;
 	int num_guiding_paths;
 	vec< vec<Lit>* > *guiding_path_queue;
+	std::vector< VarCount > var_stats;
+
+
+public:
+	void printVarStats(); 
 
 
 }; //class SolverGroup
