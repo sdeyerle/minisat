@@ -1,6 +1,5 @@
 
 #include "SolverGroup.h"
-#include "SimpSolver.h"
 #include "minisat/utils/System.h"
 #include <signal.h>
 #include <omp.h>
@@ -45,6 +44,7 @@ namespace Minisat {
 
 		//Catch if this is already set and exit early
 		solver->exit_now = &status->exit_now;
+		solver->thread_id = status->thread_id;
 
 		printf("About to begin solving thread #%d\n", status->thread_id);
 		
@@ -354,6 +354,18 @@ namespace Minisat {
 		}
 		
 		return true;
+	}
+
+	void SolverGroup::exportLearntClause( vec<Lit> &in ) {
+		pthread_rwlock_wrlock(&exportedClauseLock);
+
+		vec<Lit> *tmp = new vec<Lit>;
+		in.copyTo(*tmp);
+
+		exported_clauses.push_back(tmp);
+		printf("Exported Clause Size: %d\n", (int) exported_clauses.size());
+
+		pthread_rwlock_unlock(&exportedClauseLock);
 	}
 
 	SolverGroup::~SolverGroup() {

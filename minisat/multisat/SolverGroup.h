@@ -10,7 +10,12 @@
 
 namespace Minisat {
 
+class SimpSolver;
+
+class SolverGroup;
+
 struct sg_thread_status {
+	SolverGroup     *group;
 	vec<Lit>	*assumps;
 	bool		done;
 	lbool		result;
@@ -54,6 +59,7 @@ public:
 	vec< vec<Lit>* > *createGuidingPaths(int num);
 	bool processCompleteSolvers( lbool &status, int *winning_thread );
 	int  findOldThread();
+	void exportLearntClause( vec<Lit> &clause );
 
 private:
 	void readClause(StreamBuffer &in, vec<Lit>& lits);
@@ -76,8 +82,8 @@ private:
 	int num_guiding_paths;
 	vec< vec<Lit>* > *guiding_path_queue;
 	std::vector< VarCount > var_stats;
-
-
+	std::vector< vec<Lit>* > exported_clauses;
+	
 public:
 	void printVarStats(); 
 

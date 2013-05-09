@@ -27,9 +27,12 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "minisat/mtl/IntMap.h"
 #include "minisat/utils/Options.h"
 #include "minisat/core/SolverTypes.h"
-
+#include "minisat/multisat/SolverGroup.h"
+#include <vector>
 
 namespace Minisat {
+
+class SolverGroup;
 
 //=================================================================================================
 // Solver -- the main class:
@@ -116,6 +119,8 @@ public:
     void    setRandomPolarity(bool in);
     void    setRandomFreq(double in);
     bool    *exit_now;
+    int     thread_id;
+    SolverGroup *group;
 
     // Memory managment:
     //

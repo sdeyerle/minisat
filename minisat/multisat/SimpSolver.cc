@@ -19,7 +19,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 **************************************************************************************************/
 
 #include "minisat/mtl/Sort.h"
-#include "minisat/simp/SimpSolver.h"
+#include "minisat/multisat/SimpSolver.h"
 #include "minisat/utils/System.h"
 
 using namespace Minisat;

@@ -20,13 +20,12 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 
 #include <errno.h>
 #include <zlib.h>
-
 #include "minisat/utils/System.h"
 #include "minisat/utils/ParseUtils.h"
 #include "minisat/utils/Options.h"
 #include "minisat/core/Dimacs.h"
-#include "minisat/simp/SimpSolver.h"
-#include "SolverGroup.h"
+#include "minisat/multisat/SolverGroup.h"
+#include "minisat/multisat/SimpSolver.h"
 
 using namespace Minisat;
 
@@ -66,6 +65,7 @@ int main(int argc, char** argv)
 
 	for(int i=0; i<nthreads; i++) {
 		group.solvers[i]->verbosity = verb;
+		group.solvers[i]->group     = &group;
 	}
 
 	group.eliminate_parallel(true);

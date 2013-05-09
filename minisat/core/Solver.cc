@@ -23,6 +23,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "minisat/mtl/Alg.h"
 #include "minisat/mtl/Sort.h"
 #include "minisat/utils/System.h"
+#include "minisat/multisat/SolverGroup.h"
 #include "minisat/core/Solver.h"
 
 using namespace Minisat;
@@ -53,9 +54,10 @@ static IntOption     opt_min_learnts_lim   (_cat, "min-learnts", "Minimum learnt
 
 Solver::Solver() :
 
+    group 	     (NULL)
     // Parameters (user settable):
     //
-    verbosity        (0)
+  , verbosity        (0)
   , var_decay        (opt_var_decay)
   , clause_decay     (opt_clause_decay)
   , random_var_freq  (opt_random_var_freq)
@@ -773,12 +775,16 @@ lbool Solver::search(int nof_conflicts)
 
             if (learnt_clause.size() == 1){
                 uncheckedEnqueue(learnt_clause[0]);
+		group->exportLearntClause(learnt_clause);	
             }else{
                 CRef cr = ca.alloc(learnt_clause, true);
                 learnts.push(cr);
                 attachClause(cr);
                 claBumpActivity(ca[cr]);
                 uncheckedEnqueue(learnt_clause[0], cr);
+		if(learnt_clause.size() <= 8) { //TODO: replace magic numbers
+			group->exportLearntClause(learnt_clause);
+		}
             }
 
             varDecayActivity();
