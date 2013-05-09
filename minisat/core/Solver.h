@@ -115,6 +115,7 @@ public:
     Lit     pickGuidingPathLit();
     void    setRandomPolarity(bool in);
     void    setRandomFreq(double in);
+    bool    *exit_now;
 
     // Memory managment:
     //

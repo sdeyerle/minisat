@@ -18,12 +18,22 @@ namespace Minisat {
 		}
 		printf("\n");
 	}
+	
+	bool var_stat_compare (const struct VarCount &i, const struct VarCount &j) {
+		int num_neg = i.num_neg;
+		int num_pos = i.num_pos;
+		double controversy_i =  ((double)num_neg + (double)num_pos)  / ( abs(num_neg - num_pos)/10.0 + 1);
+		num_neg = j.num_neg;
+		num_pos = j.num_pos;
+		double controversy_j = ((double)num_neg + (double)num_pos) / ( abs(num_neg - num_pos)/10.0 + 1);
+		return controversy_i < controversy_j;
+	}
 
 	void *solver_thread(void *in) { //Mode is MODE_RAND or MODE_GP
 		struct sg_thread_status *status = (struct sg_thread_status*) in;
 		SimpSolver *solver = status->solver;
 	
-		printf("Starting a solver -- ");
+		printf("Starting solver %d -- ", status->thread_id);
 		printPath((char *)"Assumptions", status->assumps);
 
 		if(status->mode == MODE_RAND) {
@@ -33,17 +43,31 @@ namespace Minisat {
 
 		double start_time = cpuTime();
 
+		//Catch if this is already set and exit early
+		solver->exit_now = &status->exit_now;
+
 		printf("About to begin solving thread #%d\n", status->thread_id);
 		
 		lbool ret = solver->solveLimited( *status->assumps );
 		//vec<Lit> dummy;
 		//lbool ret = solver->solveLimited( dummy );
-		status->done = true;
-		status->result = ret;
+	
+		printf("Thread %d -- Result: %d -- Attempting to lock mutex on thread\n", status->thread_id, toInt(ret));
+
+		//If exit_now is set, the main loop is waiting on this thread to exit,
+		//Don't grab the lock or you will deadlock
+		//This can still deadlock though, need a better solution.....
+		if(status->exit_now) {
+			return NULL;
+		}
 
 		//Signal the main thread that we are done
 		pthread_mutex_lock(status->lock);
-		
+	
+		//This must happen after lock is acquired to prevent deadlock
+		status->done = true;
+		status->result = ret;
+	
 		pthread_cond_signal(status->signal_complete);
 
 		pthread_mutex_unlock(status->lock);
@@ -166,8 +190,10 @@ namespace Minisat {
 		vec<simp_clause*> *guiding_path_queue = new vec< vec<Lit>* >;
 
 		printf("Picking guiding path vars \n");
+		std::sort(var_stats.begin(), var_stats.end(), var_stat_compare );
 		for(int i=0; i<num_vars; i++) {
-			Lit pickedLit =  solvers[0]->pickGuidingPathLit();
+			Lit pickedLit = mkLit(var_stats.back().var);
+			var_stats.pop_back();
 			guiding_path.push( pickedLit );
 			printf("%d ", var(pickedLit) );
 		}
@@ -255,6 +281,8 @@ namespace Minisat {
 				}
 				for(int j=0; j<nthreads; j++) {
 					pthread_join(threads[i], 0);
+					printf("Thread %d has been joined\n", j);
+
 				}
 
 				pthread_mutex_unlock(&lock);
@@ -269,6 +297,9 @@ namespace Minisat {
 				for(int j=0; j<nthreads; j++) {
 					if( thread_status[j]->guiding_path_num ==  thread_status[i]->guiding_path_num ) {
 						thread_status[j]->exit_now = true;
+						printf("Waiting for thread %d to exit\n", j);
+						pthread_join(threads[j], 0);
+						printf("Thread %d has been joined\n", j);
 					}
 				}
 
@@ -295,6 +326,7 @@ namespace Minisat {
 					thread_status[i]->done = false;
 					thread_status[i]->exit_now = false;
 					thread_status[i]->mode = MODE_RAND;
+					printf("thread %d -- exit_now? %s\n", i, thread_status[i]->exit_now ? "true" : "false");
 					pthread_create(&threads[i], &attr, solver_thread, thread_status[i]);
 				}
 			}
@@ -334,22 +366,12 @@ namespace Minisat {
 		free(thread_guiding_path);
 	}
 
-	bool var_stat_compare (const struct VarCount &i, const struct VarCount &j) {
-		int num_neg = i.num_neg;
-		int num_pos = i.num_pos;
-		double controversy_i =  ((double)num_neg + (double)num_pos) / ( abs(num_neg - num_pos) + 1);
-		num_neg = j.num_neg;
-		num_pos = j.num_pos;
-		double controversy_j = ((double)num_neg + (double)num_pos) / ( abs(num_neg - num_pos) + 1);
-		return controversy_i > controversy_j;
-	}
-
 	void SolverGroup::printVarStats() {
 		std::sort(var_stats.begin(), var_stats.end(), var_stat_compare );
 		for(std::vector<VarCount>::iterator i = var_stats.begin(); i != var_stats.end(); i++) {
 			int num_neg = i->num_neg;
 			int num_pos = i->num_pos;
-			double controversy =  ((double)num_neg + (double)num_pos) / ( abs(num_neg - num_pos) + 1);
+			double controversy =  ((double)num_neg + (double)num_pos) / ( abs(num_neg - num_pos)/10.0 + 1);
 			printf("%5d -- pos: %4d - neg: %4d - controversy: %8.2f\n", i->var, i->num_pos, i->num_neg, controversy);
 		}
 	};

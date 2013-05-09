@@ -736,6 +736,12 @@ lbool Solver::search(int nof_conflicts)
     starts++;
 
     for (;;){
+    	//Exit if asked to
+	if(*exit_now) {
+		printf("Thread is trying to exit\n");
+		return l_Undef;
+	}
+
         CRef confl = propagate();
 	
 //	if(trail.size() > 3000) {
@@ -909,6 +915,9 @@ lbool Solver::solve_()
     // Search:
     int curr_restarts = 0;
     while (status == l_Undef){
+    	if(*exit_now)
+		return l_Undef;
+
         double rest_base = luby_restart ? luby(restart_inc, curr_restarts) : pow(restart_inc, curr_restarts);
         status = search(rest_base * restart_first);
         if (!withinBudget()) break;
