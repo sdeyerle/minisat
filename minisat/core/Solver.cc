@@ -48,6 +48,15 @@ static DoubleOption  opt_garbage_frac      (_cat, "gc-frac",     "The fraction o
 static IntOption     opt_min_learnts_lim   (_cat, "min-learnts", "Minimum learnt clause limit",  0, IntRange(0, INT32_MAX));
 
 
+//Debugger helper function
+void printPath( char *prefix, vec<Lit> *in) {
+	printf("%s: ", prefix);
+	for(int j=0; j<in->size(); j++) {
+		printf("%s%d ", sign( (*in)[j] ) ? "-" : "", var( (*in)[j] ) );
+	}
+	printf("\n");
+}
+
 //=================================================================================================
 // Constructor/Destructor:
 
@@ -55,6 +64,7 @@ static IntOption     opt_min_learnts_lim   (_cat, "min-learnts", "Minimum learnt
 Solver::Solver() :
 
     group 	     (NULL)
+  , clause_add_unsat  (false)
     // Parameters (user settable):
     //
   , verbosity        (0)
@@ -744,6 +754,23 @@ lbool Solver::search(int nof_conflicts)
 		return l_Undef;
 	}
 
+
+        if(decisionLevel() == 0) {
+	  propagateSharedUnits();
+	}	
+	
+	vec<Lit> shared_clause;
+	while( group->getNextSharedClause(thread_id, shared_clause) ) {
+		//printf("Importing a shared clause in thread %d\n", thread_id);
+		processExtraClause(&shared_clause);
+
+		if(clause_add_unsat) {
+			printf("Thread %d -- UNSAT due to addition of shared clause\n", thread_id);
+			return l_False;
+		}
+	}
+
+
         CRef confl = propagate();
 	
 //	if(trail.size() > 3000) {
@@ -774,8 +801,9 @@ lbool Solver::search(int nof_conflicts)
             cancelUntil(backtrack_level);
 
             if (learnt_clause.size() == 1){
+	    	printf("Found a unit!\n");
                 uncheckedEnqueue(learnt_clause[0]);
-		group->exportLearntClause(learnt_clause);	
+		group->exportSharedClause(learnt_clause);	
             }else{
                 CRef cr = ca.alloc(learnt_clause, true);
                 learnts.push(cr);
@@ -783,7 +811,7 @@ lbool Solver::search(int nof_conflicts)
                 claBumpActivity(ca[cr]);
                 uncheckedEnqueue(learnt_clause[0], cr);
 		if(learnt_clause.size() <= 8) { //TODO: replace magic numbers
-			group->exportLearntClause(learnt_clause);
+			group->exportSharedClause(learnt_clause);
 		}
             }
 
@@ -838,6 +866,7 @@ lbool Solver::search(int nof_conflicts)
                 // New variable decision:
                 decisions++;
                 next = pickBranchLit();
+		//printPath((char *)"Current Trail", &trail);	
 
                 if (next == lit_Undef)
                     // Model found:
@@ -849,6 +878,110 @@ lbool Solver::search(int nof_conflicts)
             uncheckedEnqueue(next);
         }
     }
+}
+
+void Solver::propagateSharedUnits() {
+	Lit tmp;
+	while( group->getNextSharedUnit(thread_id, tmp) ) {
+		uncheckedEnqueue( tmp );
+	}
+}
+
+  /*_________________________________________________________________________________________________
+    |
+    |  addExtraClause : ()  ->  [void]
+    |  Description: build a clause from the learnt Extra Lit*
+    |  watch it correctly, test basic cases distinguich other cases during watching process 
+    |  ** Copied from Manysat and modified
+    |________________________________________________________________________________________________@*/
+  
+  
+void Solver::processExtraClause(vec<Lit> *newClause){
+
+	vec<Lit>  extra_clause;           
+	int       extra_backtrack_level = 0;
+	int    wtch = 0;
+	Lit q = lit_Undef;
+
+	//Need to figure out this bit of code...
+	for(int i = 0, j = 0; i < (*newClause).size(); i++) {
+		q = (*newClause)[i];
+		if(value(q) == l_False && level(var(q)) == 0) //Don't add the variable if current top-level assigns say you shouldn't
+			continue;
+		extra_clause.push(q);
+		if(value(q) != l_False && wtch < 2){
+			extra_clause[j] = extra_clause[wtch];
+			extra_clause[wtch++] = q; //First 2 variables in clause are watched.  This ensures they are not false
+		}else if(level(var(q)) >= extra_backtrack_level)
+			extra_backtrack_level = level(var(q));
+		j++;
+	} //j is the number of variables actually inserted
+
+	//printPath( (char *)"Extra Clause Before", newClause );
+	//printPath( (char *)"Extra Clause After", &extra_clause);
+
+	//conflict clause at level 0 --> formula is UNSAT
+	if(extra_clause.size() == 0) {
+		clause_add_unsat = true;
+		return;
+	}
+		
+	// case of unit extra clause
+	else if(extra_clause.size() == 1){
+		printf("Adding a unit extra clause\n");
+		cancelUntil(0);
+		if(value(extra_clause[0]) == l_Undef){
+			uncheckedEnqueue(extra_clause[0]);
+			CRef cs = propagate();
+			if(cs != CRef_Undef) {
+				clause_add_unsat = true;
+				return;
+			}
+			
+		}
+	}
+
+	else {
+		// build clause from lits and add it to learnts(s) base
+		CRef cr = addExtraClause(extra_clause);
+
+		// Case of Unit propagation: literal to propagate or bad level  
+		if(wtch == 1 && (value(extra_clause[0]) == l_Undef || extra_backtrack_level < level(var(extra_clause[0])))){
+			cancelUntil(extra_backtrack_level);
+			uncheckedEnqueue(extra_clause[0], cr);
+		}
+
+		// Case of Conflicting Extra Clause --> analyze that conflict
+		else if(wtch == 0) {
+			extra_clause.clear();
+			cancelUntil(extra_backtrack_level);
+
+			analyze(cr, extra_clause, extra_backtrack_level);	
+			cancelUntil(extra_backtrack_level);
+
+			// analyze lead to unit clause
+			if(extra_clause.size() == 1){				
+				assert(extra_backtrack_level == 0);
+				if(value(extra_clause[0]) == l_Undef)uncheckedEnqueue(extra_clause[0]);
+			}
+			// analyze lead to clause with size > 1
+			else {
+				CRef cs = addExtraClause(extra_clause);
+				uncheckedEnqueue(extra_clause[0], cs);
+				//exportExtraClause(s, extra_clause);		
+			}
+		}
+	}
+
+}		
+
+
+CRef Solver::addExtraClause(vec<Lit>& lits){
+  CRef cr = ca.alloc(lits, true);
+  learnts.push(cr);
+  attachClause(cr);
+  claBumpActivity(ca[cr]);
+  return cr;
 }
 
 
@@ -900,6 +1033,21 @@ lbool Solver::solve_()
     model.clear();
     conflict.clear();
     if (!ok) return l_False;
+
+    learnts.clear();
+    group->resetIters(thread_id);
+    vec<Lit> shared_clause;
+    while( group->getNextSharedClause(thread_id, shared_clause) ) {
+	    //printf("Importing an intial shared clause in thread %d\n", thread_id);
+	    processExtraClause(&shared_clause);
+
+	    if(clause_add_unsat) {
+		    printf("Thread %d -- Unsat due to Assumps and previous learnt clauses\n", thread_id);
+		    return l_False;
+	    }
+    }
+
+
 
     solves++;
 	

@@ -55,11 +55,15 @@ public:
 	void parse_DIMACS(gzFile in);
 	lbool solve_parallel(int *winning_thread);
 	bool eliminate_parallel(bool in);
-	void exportClause(vec<Lit> clause);
 	vec< vec<Lit>* > *createGuidingPaths(int num);
 	bool processCompleteSolvers( lbool &status, int *winning_thread );
 	int  findOldThread();
-	void exportLearntClause( vec<Lit> &clause );
+	void exportSharedClause( vec<Lit> &clause );
+	void printVarStats(); 
+	bool getNextSharedClause(int thread_id, vec<Lit> &clause);
+	bool getNextSharedUnit(int thread_id, Lit &out);
+	void exportSharedUnit( Lit &in );
+	void resetIters( int thread_id);
 
 private:
 	void readClause(StreamBuffer &in, vec<Lit>& lits);
@@ -73,7 +77,8 @@ private:
 	pthread_t *threads;
 	pthread_cond_t signal_complete; //Thread completion
 	pthread_mutex_t lock;  //Main mutex for threads
-	pthread_rwlock_t exportedClauseLock;
+	pthread_rwlock_t sharedClauseLock;
+	pthread_rwlock_t sharedUnitLock;
 	int nthreads;
 	int current_guiding_path;
 	int *thread_guiding_path; //Array containing relation of which thread is
@@ -82,10 +87,10 @@ private:
 	int num_guiding_paths;
 	vec< vec<Lit>* > *guiding_path_queue;
 	std::vector< VarCount > var_stats;
-	std::vector< vec<Lit>* > exported_clauses;
-	
-public:
-	void printVarStats(); 
+	std::vector< vec<Lit>* > shared_clauses;
+	std::vector< Lit > shared_units;
+	unsigned int *shared_clause_iters;
+	unsigned int *shared_unit_iters;
 
 
 }; //class SolverGroup

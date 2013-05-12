@@ -58,7 +58,6 @@ public:
     bool    addClause (Lit p, Lit q, Lit r, Lit s);             // Add a quaternary clause to the solver. 
     bool    addClause_(      vec<Lit>& ps);                     // Add a clause to the solver without making superflous internal copy. Will
                                                                 // change the passed vector 'ps'.
-
     // Solving:
     //
     bool    simplify     ();                        // Removes already satisfied clauses.
@@ -121,6 +120,10 @@ public:
     bool    *exit_now;
     int     thread_id;
     SolverGroup *group;
+    void propagateSharedUnits();
+    void processExtraClause(vec<Lit> *newClause);
+    CRef addExtraClause(vec<Lit>& lits);
+    bool clause_add_unsat;
 
     // Memory managment:
     //

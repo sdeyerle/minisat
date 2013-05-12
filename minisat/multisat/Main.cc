@@ -65,7 +65,6 @@ int main(int argc, char** argv)
 
 	for(int i=0; i<nthreads; i++) {
 		group.solvers[i]->verbosity = verb;
-		group.solvers[i]->group     = &group;
 	}
 
 	group.eliminate_parallel(true);
@@ -79,7 +78,8 @@ int main(int argc, char** argv)
 	lbool ret = group.solve_parallel(&winning_thread);
 	printf("Winning thread is: %d\n", winning_thread);
 	printf(ret == l_True ? "SATISFIABLE\n" : ret == l_False ? "UNSATISFIABLE\n" : "INDETERMINATE\n");
-	group.solvers[winning_thread]->printStats();
+	if(winning_thread > 0)
+		group.solvers[winning_thread]->printStats();
 
         
  //       SimpSolver  S;

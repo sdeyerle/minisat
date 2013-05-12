@@ -71,6 +71,8 @@ SimpSolver::SimpSolver() :
 
 SimpSolver::~SimpSolver()
 {
+	//Yay, MiniSAT developers hate deallocating memory!  Awesome!  Memory leaks are teh b3st!!!
+	//It's a good thing they included this super useful destructor!
 }
 
 

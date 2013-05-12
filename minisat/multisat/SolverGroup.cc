@@ -38,6 +38,7 @@ namespace Minisat {
 		if(status->mode == MODE_RAND) {
 			solver->setRandomPolarity(true);	
 			solver->setRandomFreq( 0.1 ); //Set random freq to 10% after done
+			printf("Now settings solver %d to RAND mode\n", status->thread_id);
 		} //Presently will be irreversible 
 
 		double start_time = cpuTime();
@@ -85,12 +86,17 @@ namespace Minisat {
 		thread_status = new struct sg_thread_status* [nthreads];
 		threads = new pthread_t [nthreads];
 		thread_guiding_path = new int[nthreads];
-		guiding_path_status = new int[num_guiding_paths];
+		shared_clause_iters = new unsigned int[nthreads];
+		shared_unit_iters = new unsigned int[nthreads];
 		guiding_path_queue = NULL;
 
+		
 		for(int i=0; i<nthreads; i++) {
 			solvers[i] = new SimpSolver();
 			thread_status[i] = new struct sg_thread_status;
+			solvers[i]->group = this;
+			shared_clause_iters[i] = 0;
+			shared_unit_iters[i] = 0;
 		}
 		//Create joinable threads for portability
 		pthread_attr_init(&attr);
@@ -98,7 +104,8 @@ namespace Minisat {
 
 		pthread_mutex_init(&lock, NULL);
 		pthread_cond_init(&signal_complete, NULL);
-		pthread_rwlock_init(&exportedClauseLock, NULL);
+		pthread_rwlock_init(&sharedClauseLock, NULL);
+		pthread_rwlock_init(&sharedUnitLock, NULL);
 
 		omp_set_num_threads(nthreads);
 	}
@@ -143,7 +150,7 @@ namespace Minisat {
 		if (cnt  != clauses)
 			fprintf(stderr, "WARNING! DIMACS header mismatch: wrong number of clauses.\n");
 
-		printVarStats();
+		//printVarStats();
 		printf("Parsing time: %f s\n", cpuTime() - start_time);
 
 	}
@@ -158,7 +165,7 @@ namespace Minisat {
 			int initvar = var;
 			for(int t = 0; t < nthreads; t++){
 				var = initvar;	
-				while (var >= solvers[t]->nVars()) solvers[t]->newVar(l_False); //Default polarity set here
+				while (var >= solvers[t]->nVars()) solvers[t]->newVar(); //Default polarity set here
 			}
 			lits.push( (parsed_lit > 0) ? mkLit(var) : ~mkLit(var) );
 			if(parsed_lit > 0) {
@@ -224,6 +231,7 @@ namespace Minisat {
 	lbool SolverGroup::solve_parallel(int *winning_thread) {
 		guiding_path_queue = createGuidingPaths(nthreads);
 		num_guiding_paths = guiding_path_queue->size();
+		guiding_path_status = new int[num_guiding_paths];
 				
 		//Initialize thread/guiding path relation to indeterminate at start
 		for(int i=0; i<nthreads; i++) {
@@ -276,6 +284,8 @@ namespace Minisat {
 			if(thread_status[i]->done == true && thread_status[i]->result == l_True) {
 				printf("Thread:%d was SAT\n", i);	
 
+				pthread_mutex_unlock(&lock);
+
 				for(int j=0; j<nthreads; j++) {
 					thread_status[i]->exit_now = true;	
 				}
@@ -285,7 +295,6 @@ namespace Minisat {
 
 				}
 
-				pthread_mutex_unlock(&lock);
 				guiding_path_status[i] = SAT;
 				*winning_thread = i;
 				status = thread_status[i]->result; //Return which thread finished first
@@ -298,7 +307,9 @@ namespace Minisat {
 					if( thread_status[j]->guiding_path_num ==  thread_status[i]->guiding_path_num ) {
 						thread_status[j]->exit_now = true;
 						printf("Waiting for thread %d to exit\n", j);
+						pthread_mutex_unlock(&lock);
 						pthread_join(threads[j], 0);
+						pthread_mutex_lock(&lock);
 						printf("Thread %d has been joined\n", j);
 					}
 				}
@@ -356,19 +367,65 @@ namespace Minisat {
 		return true;
 	}
 
-	void SolverGroup::exportLearntClause( vec<Lit> &in ) {
-		pthread_rwlock_wrlock(&exportedClauseLock);
+	void SolverGroup::exportSharedClause( vec<Lit> &in ) {
+		pthread_rwlock_wrlock(&sharedClauseLock);
 
 		vec<Lit> *tmp = new vec<Lit>;
 		in.copyTo(*tmp);
 
-		exported_clauses.push_back(tmp);
-		printf("Exported Clause Size: %d\n", (int) exported_clauses.size());
+		shared_clauses.push_back(tmp);
+		//printf("Exported Clause Size: %d\n", (int) shared_clauses.size());
 
-		pthread_rwlock_unlock(&exportedClauseLock);
+		pthread_rwlock_unlock(&sharedClauseLock);
 	}
 
-	SolverGroup::~SolverGroup() {
+	bool SolverGroup::getNextSharedUnit( int thread_id, Lit &out ) 
+	{
+		if( shared_units.size() == 0)
+			return false;
+		if( shared_unit_iters[thread_id] == shared_units.size()-1 )
+			return false;
+
+		pthread_rwlock_rdlock(&sharedUnitLock);
+
+		out = shared_units[ shared_unit_iters[thread_id]++ ]; 
+
+		pthread_rwlock_unlock(&sharedUnitLock);
+
+		printf("Thread: %d -- Importing unit: %s%d\n", thread_id, sign(out) ? "" : "-", var(out) ); 
+		return true;
+	}
+
+	bool SolverGroup::getNextSharedClause( int thread_id, vec<Lit> &out ) 
+	{
+		if( shared_clauses.size() == 0)
+			return false;
+		if( shared_clause_iters[thread_id] == shared_clauses.size()-1 )
+			return false;
+
+		pthread_rwlock_rdlock(&sharedClauseLock);
+
+		(*shared_clauses[ shared_clause_iters[thread_id]++ ]).copyTo(out); 
+
+		pthread_rwlock_unlock(&sharedClauseLock);
+
+		//printf("Thread %d -- Importing Shared Clause", thread_id);
+		//printPath( (char *)"", &out);
+		return true;
+	}
+
+	void SolverGroup::exportSharedUnit( Lit &in ) {
+		pthread_rwlock_wrlock(&sharedUnitLock);
+
+		shared_units.push_back(in);
+
+		pthread_rwlock_unlock(&sharedUnitLock);
+		printf("Exported Unit: %s%d\n",  sign(in) ? "" : "-", var(in) ); 
+
+	}
+	
+	SolverGroup::~SolverGroup()
+	{
 		for(int i=0; i<nthreads; i++) {
 			free(solvers[i]);
 			free(thread_status[i]);
@@ -387,6 +444,12 @@ namespace Minisat {
 			printf("%5d -- pos: %4d - neg: %4d - controversy: %8.2f\n", i->var, i->num_pos, i->num_neg, controversy);
 		}
 	};
+
+	void SolverGroup::resetIters(int thread_id) 
+	{
+		shared_clause_iters[thread_id] = 0;
+		shared_unit_iters[thread_id] = 0;
+	}
 }
 
 
