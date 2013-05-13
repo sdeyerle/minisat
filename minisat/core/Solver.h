@@ -124,6 +124,11 @@ public:
     void processExtraClause(vec<Lit> *newClause);
     CRef addExtraClause(vec<Lit>& lits);
     bool clause_add_unsat;
+    int exportedClauseCount;
+    int importedClauseCount;
+    int exportedUnitCount;
+    int importedUnitCount;
+    int exportSizeLim;
 
     // Memory managment:
     //

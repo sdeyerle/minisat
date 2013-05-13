@@ -45,6 +45,10 @@ struct VarCount {
 	int num_neg;
 };
 
+struct sharedClause {
+	int thread_id;
+	vec<Lit> *clause;
+};
 
 class SolverGroup {
 public:
@@ -58,7 +62,7 @@ public:
 	vec< vec<Lit>* > *createGuidingPaths(int num);
 	bool processCompleteSolvers( lbool &status, int *winning_thread );
 	int  findOldThread();
-	void exportSharedClause( vec<Lit> &clause );
+	void exportSharedClause( int thread_id, vec<Lit> &clause );
 	void printVarStats(); 
 	bool getNextSharedClause(int thread_id, vec<Lit> &clause);
 	bool getNextSharedUnit(int thread_id, Lit &out);
@@ -87,7 +91,7 @@ private:
 	int num_guiding_paths;
 	vec< vec<Lit>* > *guiding_path_queue;
 	std::vector< VarCount > var_stats;
-	std::vector< vec<Lit>* > shared_clauses;
+	std::vector< struct sharedClause > shared_clauses;
 	std::vector< Lit > shared_units;
 	unsigned int *shared_clause_iters;
 	unsigned int *shared_unit_iters;

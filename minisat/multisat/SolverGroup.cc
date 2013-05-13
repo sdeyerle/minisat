@@ -17,6 +17,9 @@ namespace Minisat {
 		}
 		printf("\n");
 	}
+
+        IntOption    nthreads("PARALLEL", "nthreads",   "Number of concurrent threads", 4, IntRange(1, 32));
+        IntOption    share_lim("PARALLEL", "share_lim",   "Maximum learnt clause size that is shared to other threads", 8, IntRange(1, 2000));
 	
 	bool var_stat_compare (const struct VarCount &i, const struct VarCount &j) {
 		int num_neg = i.num_neg;
@@ -55,13 +58,6 @@ namespace Minisat {
 	
 		printf("Thread %d -- Result: %d -- Attempting to lock mutex on thread\n", status->thread_id, toInt(ret));
 
-		//If exit_now is set, the main loop is waiting on this thread to exit,
-		//Don't grab the lock or you will deadlock
-		//This can still deadlock though, need a better solution.....
-		if(status->exit_now) {
-			return NULL;
-		}
-
 		//Signal the main thread that we are done
 		pthread_mutex_lock(status->lock);
 	
@@ -95,6 +91,7 @@ namespace Minisat {
 			solvers[i] = new SimpSolver();
 			thread_status[i] = new struct sg_thread_status;
 			solvers[i]->group = this;
+			solvers[i]->exportSizeLim = share_lim;
 			shared_clause_iters[i] = 0;
 			shared_unit_iters[i] = 0;
 		}
@@ -367,13 +364,16 @@ namespace Minisat {
 		return true;
 	}
 
-	void SolverGroup::exportSharedClause( vec<Lit> &in ) {
+	void SolverGroup::exportSharedClause( int thread_id, vec<Lit> &in ) {
 		pthread_rwlock_wrlock(&sharedClauseLock);
 
 		vec<Lit> *tmp = new vec<Lit>;
 		in.copyTo(*tmp);
+		struct sharedClause clause_tmp;
+		clause_tmp.clause = tmp;
+		clause_tmp.thread_id = thread_id;
 
-		shared_clauses.push_back(tmp);
+		shared_clauses.push_back(clause_tmp);
 		//printf("Exported Clause Size: %d\n", (int) shared_clauses.size());
 
 		pthread_rwlock_unlock(&sharedClauseLock);
@@ -404,8 +404,17 @@ namespace Minisat {
 			return false;
 
 		pthread_rwlock_rdlock(&sharedClauseLock);
+		
+		do {
+			shared_clause_iters[thread_id]++;
+			if( shared_clause_iters[thread_id] == shared_clauses.size()-1 ) {
+				pthread_rwlock_unlock(&sharedClauseLock);
+				return false;
+			}
+		} while(  shared_clauses[ shared_clause_iters[thread_id] ].thread_id == thread_id );
 
-		(*shared_clauses[ shared_clause_iters[thread_id]++ ]).copyTo(out); 
+		//Copy the shared clause to the output
+		(*shared_clauses[ shared_clause_iters[thread_id]++ ].clause).copyTo(out); 
 
 		pthread_rwlock_unlock(&sharedClauseLock);
 

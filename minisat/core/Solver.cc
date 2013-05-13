@@ -773,24 +773,6 @@ lbool Solver::search(int nof_conflicts)
 
         CRef confl = propagate();
 	
-//	if(trail.size() > 3000) {
-//		printf("TOO BIG - BYEBYE size is: %d\n", trail.size());
-//		exit(-1);
-//	}
-
-//	printf("Current Trail: ");
-//	for(int i=0; i<trail.size(); i++) {
-//		printf("%d:%s%d ", i, sign( trail[i] ) ? "-" : "", var( trail[i] ));
-//
-//	}
-//	printf("\n");
-//	printf("Current Trail Limit: ");
-//	for(int i=0; i<trail_lim.size(); i++) {
-//		printf("%d ", trail_lim[i]);
-//
-//	}
-//	printf("\n");
-
         if (confl != CRef_Undef){
             // CONFLICT
             conflicts++; conflictC++;
@@ -801,9 +783,10 @@ lbool Solver::search(int nof_conflicts)
             cancelUntil(backtrack_level);
 
             if (learnt_clause.size() == 1){
-	    	printf("Found a unit!\n");
+	    	//printf("Found a unit!\n");
+		exportedUnitCount++;
                 uncheckedEnqueue(learnt_clause[0]);
-		group->exportSharedClause(learnt_clause);	
+		group->exportSharedClause(thread_id, learnt_clause);	
             }else{
                 CRef cr = ca.alloc(learnt_clause, true);
                 learnts.push(cr);
@@ -811,7 +794,8 @@ lbool Solver::search(int nof_conflicts)
                 claBumpActivity(ca[cr]);
                 uncheckedEnqueue(learnt_clause[0], cr);
 		if(learnt_clause.size() <= 8) { //TODO: replace magic numbers
-			group->exportSharedClause(learnt_clause);
+			group->exportSharedClause(thread_id, learnt_clause);
+			exportedClauseCount++;
 		}
             }
 
@@ -903,7 +887,9 @@ void Solver::processExtraClause(vec<Lit> *newClause){
 	int    wtch = 0;
 	Lit q = lit_Undef;
 
-	//Need to figure out this bit of code...
+	//Remove variables from clause that are unnecessary
+	//And put 2 possible values in pos 0 and 1 which will
+	//be watched
 	for(int i = 0, j = 0; i < (*newClause).size(); i++) {
 		q = (*newClause)[i];
 		if(value(q) == l_False && level(var(q)) == 0) //Don't add the variable if current top-level assigns say you shouldn't
@@ -917,9 +903,6 @@ void Solver::processExtraClause(vec<Lit> *newClause){
 		j++;
 	} //j is the number of variables actually inserted
 
-	//printPath( (char *)"Extra Clause Before", newClause );
-	//printPath( (char *)"Extra Clause After", &extra_clause);
-
 	//conflict clause at level 0 --> formula is UNSAT
 	if(extra_clause.size() == 0) {
 		clause_add_unsat = true;
@@ -928,11 +911,14 @@ void Solver::processExtraClause(vec<Lit> *newClause){
 		
 	// case of unit extra clause
 	else if(extra_clause.size() == 1){
-		printf("Adding a unit extra clause\n");
+		//printf("Adding a unit extra clause\n");
+		importedUnitCount++;
 		cancelUntil(0);
 		if(value(extra_clause[0]) == l_Undef){
 			uncheckedEnqueue(extra_clause[0]);
 			CRef cs = propagate();
+			//If the unit clause is set at decisionLevel 0, this 
+			//solver is UNSAT and should exit
 			if(cs != CRef_Undef) {
 				clause_add_unsat = true;
 				return;
@@ -942,8 +928,8 @@ void Solver::processExtraClause(vec<Lit> *newClause){
 	}
 
 	else {
-		// build clause from lits and add it to learnts(s) base
 		CRef cr = addExtraClause(extra_clause);
+		importedClauseCount++;
 
 		// Case of Unit propagation: literal to propagate or bad level  
 		if(wtch == 1 && (value(extra_clause[0]) == l_Undef || extra_backtrack_level < level(var(extra_clause[0])))){
@@ -1033,6 +1019,11 @@ lbool Solver::solve_()
     model.clear();
     conflict.clear();
     if (!ok) return l_False;
+
+    exportedClauseCount = 0;
+    importedClauseCount = 0;
+    exportedUnitCount = 0;
+    importedUnitCount = 0;
 
     learnts.clear();
     group->resetIters(thread_id);
